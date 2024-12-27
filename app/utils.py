@@ -2,7 +2,15 @@ import requests
 import os
 import datetime
 from dotenv import load_dotenv
+from flask import Response, request, render_template
+from typing import Dict, List, Any
 
+
+days = {
+  'sv': [' ', u'Måndag', u'Tisdag', u'Onsdag', u'Torsdag', u'Fredag', u'Lördag', u'Söndag'],
+  'en': [' ', u'Monday', u'Tuesday', u'Wednesday', u'Thursday', u'Friday', u'Saturday', u'Sunday'],
+  'fi': [' ', u'Maanantai', u'Tiistai', u'Keskiviikko', u'Torstai', u'Perjantai', u'Lauantai', u'Sunnuntai'],
+}
 
 # General class for the api client
 class APIClient:
@@ -35,10 +43,13 @@ class APIClient:
         except:
             raise Exception("Error getting new token")
     
-    # This is a main function for making a request. More specific request methods use this.
-    # Why? 
-    # To handle things like token refreshment.
-    def make_request(self, endpoint, data=None, retry=True):
+
+    def make_request(self, endpoint, retry=True):
+            """
+            Main function for making a request, handles token refreshment.
+            #FIXME: finish and add parameters
+            """
+
             url = f"{self.api_base_url}/{endpoint}"
             headers = {
                 "authorization": self.token
@@ -53,13 +64,12 @@ class APIClient:
                     print("Token expired. Attempting to refresh token...")
                     self.token = self.get_new_token()
                     print(f"generated new roken: {self.token}")
-                    return self.make_request(endpoint=endpoint, data=None, retry=False)
+                    return self.make_request(endpoint=endpoint, retry=False)
 
                 elif response.status_code == 403 and not retry:
                     print("Refreshing token did not help - response still 403...") #TODO: make better error handling
                     raise PermissionError(f"Access forbidden / 403 even after refreshing token")
 
-                # Raise for other errors
                 return response.json()
 
             except requests.RequestException as e:
@@ -70,14 +80,13 @@ class APIClient:
                 return None
             
 
-    # Date format: Comma separated list of dates in format YYYY-MM-DD.
-    def fetch_menu(self):
-        # Current day
-        today = datetime.date.today().isoformat()
-
-        endpoint = f"public/publicmenu/dates/{self.site_name}?dates={today}&menu={self.menu_name}"
-
-        # Define headers, including the authorization key
+    def fetch_menu(self, dates: str) -> Dict[str, Any] : 
+        """ 
+        Parameters
+        Dates: Comma separated list of dates in format YYYY-MM-DD
+        Returns
+        """
+        endpoint = f"public/publicmenu/dates/{self.site_name}?dates={dates}&menu={self.menu_name}"
 
         try:
             response = self.make_request(endpoint=endpoint)
@@ -87,19 +96,59 @@ class APIClient:
         except AttributeError as Ae:
             return {'error': f" AttributeError with details: {Ae}, and endpoint={endpoint}"}
 
-    # For parsing the resulting menu and getting the relevant data
-    def parse_menu(rawmenu):
-        if not rawmenu:
-            return {'error': 'No menu data found'}
+    def fetch_todays_menu(self):
+        today = datetime.date.today().isoformat()
+        todays_menu = self.fetch_menu(dates=today)
+        return self.menu_to_json(menuList=todays_menu, language="fi")
+    
+    def fetch_test_menu(self):
+        dates = "2024-12-27,2024-12-28"
+        test_menu = self.fetch_menu(dates=dates)
+        return self.menu_to_json(menuList=test_menu, language="fi")
+    
+
+    # For parsing menu and getting the relevant data
+    def menu_to_json(self, menuList: List, language: str) -> List:
+        if not menuList:
+            return [{'error': 'No menu data found'}]
         try:
-            return [
-                {
-                    'name': item['name'],
-                    'price': item['price'],
-                    'description': item['description']
-                }
-                for item in rawmenu
-            ]
+            json_menu = []
+            for menu in menuList:
+                obj = {}
+                # Set menu items 
+                obj["day"] = menu.get("date")
+                obj["dayname"] = "" #FIXME: piopulate these like old api
+                obj["dayname"] = "" #FIXME: piopulate these like old api
+
+                for meal_option in menu.get("mealOptions"):
+                    
+
+                    option_name = "None"
+
+                    for name_entry in meal_option.get("names", []):
+                        if name_entry.get("language") == language:
+                            option_name = name_entry.get("name", "Unnamed meal option")
+                            break
+                    dish_name = "None"
+                    for name_row in meal_option.get("rows")[0].get("names"):
+                        if name_row.get("language") == language:
+                            dish_name = name_row.get("name")
+                    obj[option_name] = dish_name
+
+
+        
+                json_menu.append(obj)
+            return json_menu
         except KeyError as e:
-            print(f"Error parsing data: Missing key {e}")
-            return []
+            return{"Error parsing data": f"Missing key {e}"}
+
+    def nextMealDate(days):
+        date = datetime.date.today()
+        d = int(days)
+
+        for i in range(0, d+1):
+            datum = date + datetime.timedelta(days=1)
+            while (date.isoweekday() > 5):
+              date = date + datetime.timedelta(1) 
+
+        return date
