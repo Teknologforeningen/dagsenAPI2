@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template
 from .utils import APIClient
+import datetime
 
 client = APIClient()
 
@@ -10,26 +11,28 @@ main = Blueprint('main', __name__)
 def home():
     return "Welcome to the home page!"
 
-@main.route('/dagensmeny')
-def menu():
-    return client.fetch_todays_menu()
+@main.route('/taffa/<language>/today/') #FIXME: should return text menu for todays date
+def todaysMenu(language):
+    todaysDate = datetime.date.today().isoformat()
+    return client.json_menu(todaysDate, language=language)
 
-@main.route('/testmeny')
-def testmenu():
-    return client.fetch_test_menu()
+@main.route('/taffa/<language>/json/<int:days>/') #Needed for info
+def jsonNextMeal(language, days):
+  date = client.next_meal_date(days)
+  print(date)
+  return client.json_menu(language=language, date=date)
 
-@main.route('/taffa/<language>/today/') #FIXME: which of these are needed?
+
+
+
 
 @main.route('/taffa/<language>/html/today/') #FIXME: which of these are needed?
 
 @main.route('/taffa/<language>/json/today/') #FIXME: which of these are needed?
 
-
 @main.route('/taffa/<language>/json/week/') #FIXME: which of these are needed?
 
 @main.route('/taffa/<language>/html/week/') #FIXME: which of these are needed?
-
-
 
 @main.route('/taffa/<language>/<day>/<month>/<year>/') #FIXME: which of these are needed?
 
@@ -39,7 +42,7 @@ def testmenu():
 
 @main.route('/taffa/<language>/json/<day>/<month>/<year>/') #FIXME: which of these are needed?
 
-@main.route('/taffa/<language>/json/<int:days>/') #FIXME: which of these are needed?
+
 
 
 
