@@ -149,6 +149,22 @@ class APIClient:
     
 
     def json_menu(self, date, language):
-        ''' Takes as input list of dates and returns list of json dictioary. '''
+        ''' Returns menu for a given date in json format '''
         menu = self.fetch_menu(date=date, language=language)
         return Response(json.dumps(menu, ensure_ascii=False), mimetype='application/json; charset:utf-8')
+    
+    def textAndMeals(self, date, language):
+        ''' Returns menu for a given date in text format '''
+        menu = self.fetch_menu(date=date, language=language)
+        del menu["day"]
+        del menu["dayName"]
+        print(type(menu))
+        output = ""
+        if len(menu) == 0:
+            output = "No menu available"
+        else:
+            for key, value in menu.items():
+                output += f"{key}: {value}\r\n"
+        return Response(output, mimetype='text/plain; charset=utf-8')
+    
+

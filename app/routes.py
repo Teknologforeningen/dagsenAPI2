@@ -12,17 +12,19 @@ def home():
     return "Welcome to the home page!"
 
 @main.route('/taffa/<language>/today/') #FIXME: should return text menu for todays date
-def todaysMenu(language):
+def todaysMenuText(language):
     todaysDate = datetime.date.today().isoformat()
-    return client.json_menu(todaysDate, language=language)
+    return client.textAndMeals(language=language, date=todaysDate)
 
 @main.route('/taffa/<language>/json/<int:days>/') #Needed for info
 def jsonNextMeal(language, days):
   date = client.next_meal_date(days)
-  print(date)
   return client.json_menu(language=language, date=date)
 
-
+@main.route('/taffa/<language>/<int:days>/')
+def menuText(language, days):
+    date = client.next_meal_date(days)
+    return client.textAndMeals(language=language, date=date)
 
 
 
@@ -38,7 +40,7 @@ def jsonNextMeal(language, days):
 
 @main.route('/taffa/<language>/txt/<day>/<month>/<year>/') #FIXME: which of these are needed?
 
-@main.route('/taffa/<language>/<int:days>/') #FIXME: which of these are needed?
+ #FIXME: which of these are needed?
 
 @main.route('/taffa/<language>/json/<day>/<month>/<year>/') #FIXME: which of these are needed?
 
