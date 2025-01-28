@@ -48,7 +48,11 @@ class APIClient:
     def make_request(self, endpoint, retry=True):
             """
             Main function for making a request, handles token refreshment.
-            #FIXME: finish and add parameters
+            Parameters:
+            endpoint: str - the endpoint to call
+            retry: bool - whether to retry the request (used once on failed 403)
+            Returns:
+            json response from the api
             """
             url = f"{self.api_base_url}/{endpoint}"
             headers = {
@@ -107,6 +111,21 @@ class APIClient:
             "Extra": "No menu available"    // If no menu available
         }
         '''
+        language = language.lower()
+
+        language_aliases = {
+            'sv': 'sv',
+            'swe': 'sv',
+            'en': 'en',
+            'fi': 'fi',
+            'fin': 'fi'
+        }
+
+        if(language not in language_aliases):
+            language = 'en' # Default to english if language not supported
+        else:
+            language = language_aliases[language]
+
         obj = {}
         obj["day"] = date
         date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
@@ -115,13 +134,13 @@ class APIClient:
         if not menu_list or len(menu_list) == 0:
             obj["Extra"] = "No menu available" 
         else: 
+            i=0 # Tracks number of unnamed meal options
             menu = menu_list[0] # Here we are only interested in the one (first) day
             options = menu.get("mealOptions")
             if options is not None:
-                print(f"number of mealOptions: {len(options)}")
+                print(f"number of mealOptions: {len(options)}") # FIXME: remove after debugging
                 for meal_option in menu.get("mealOptions"):
                     option_name = "None"
-                    i = 0
                     for name_entry in meal_option.get("names", []):
                         if name_entry.get("language") == language:
                             option_name = name_entry.get("name", f"Unnamed meal option {i}")
@@ -130,7 +149,7 @@ class APIClient:
                     dish_name = "None"
                     for name_row in meal_option.get("rows")[0].get("names"):
                         if name_row.get("language") == language:
-                            dish_name = name_row.get("name")
+                            dish_name = name_row.get("name", "Unnamed dish")
                     obj[option_name] = dish_name
         return obj
 
@@ -140,7 +159,7 @@ class APIClient:
         date = datetime.date.today()
         d = int(days)
 
-        for i in range(0, d+1):
+        for i in range(0, d):
             date = date + datetime.timedelta(days=1)
             while (date.isoweekday() > 5):
               date = date + datetime.timedelta(days=1) 
@@ -153,6 +172,7 @@ class APIClient:
         menu = self.fetch_menu(date=date, language=language)
         return Response(json.dumps(menu, ensure_ascii=False), mimetype='application/json; charset:utf-8')
     
+
     def textAndMeals(self, date, language):
         ''' Returns menu for a given date in text format '''
         menu = self.fetch_menu(date=date, language=language)
