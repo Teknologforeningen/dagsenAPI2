@@ -9,9 +9,9 @@ main = Blueprint('main', __name__)
 
 @main.route('/')
 def home():
-    return "Welcome to the home page!"
+    return render_template('index.html')
 
-@main.route('/taffa/<language>/today/') #FIXME: should return text menu for todays date
+@main.route('/taffa/<language>/today/')
 def todaysMenuText(language):
     todaysDate = datetime.date.today().isoformat()
     return client.textAndMeals(language=language, date=todaysDate)
