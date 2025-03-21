@@ -1,108 +1,140 @@
 swagger: "2.0"
 info:
-  title: Taffa Menu API
-  description: API to fetch and display menu information in different formats.
+  title: "Taffa Menu API"
+  description: "API for retrieving restaurant menus in different formats."
   version: "1.0.0"
-
-host: localhost:5000
-schemes:
-  - http
-basePath: /
-
 paths:
-  /:
-    get:
-      summary: Home
-      description: Returns a welcome message.
-      produces:
-        - text/plain
-      responses:
-        200:
-          description: Success
-          schema:
-            type: string
-            example: "Welcome to the home page!"
-
   /taffa/{language}/today/:
     get:
-      summary: Get today's menu (text)
-      description: Fetches the menu for today in plain text format.
+      summary: "Get today's menu in text format"
       parameters:
         - name: language
           in: path
           required: true
           type: string
-          enum: [en, sv, fi]
-          description: Language code (en = English, sv = Swedish, fi = Finnish)
-      produces:
-        - text/plain
       responses:
         200:
-          description: Success
+          description: "Today's menu in plain text"
           schema:
             type: string
-            example: "Option 1: Pasta Bolognese\nOption 2: Vegetarian Curry"
-
-  /taffa/{language}/json/{days}/:
+  /taffa/{language}/week/:
     get:
-      summary: Get menu as JSON
-      description: Fetches the menu for the specified number of days in JSON format.
+      summary: "Get weekly menu in text format"
       parameters:
         - name: language
           in: path
           required: true
           type: string
-          enum: [en, sv, fi]
-          description: Language code (en = English, sv = Swedish, fi = Finnish)
-        - name: days
-          in: path
-          required: true
-          type: integer
-          minimum: 0
-          description: Number of days in the future for which to retrieve the menu.
-      produces:
-        - application/json
       responses:
         200:
-          description: JSON menu response
+          description: "Weekly menu in plain text"
           schema:
-            type: object
-            properties:
-              day:
-                type: string
-                example: "2025-03-19"
-              dayName:
-                type: string
-                example: "Wednesday"
-              Option 1:
-                type: string
-                example: "Pasta Bolognese"
-              Extra:
-                type: string
-                example: "Fruit Salad"
-
+            type: string
   /taffa/{language}/{days}/:
     get:
-      summary: Get menu as text
-      description: Fetches the menu for the specified number of days in plain text format.
+      summary: "Get menu in X days in text format"
       parameters:
         - name: language
           in: path
           required: true
           type: string
-          enum: [en, sv, fi]
-          description: Language code (en = English, sv = Swedish, fi = Finnish)
         - name: days
           in: path
           required: true
           type: integer
-          minimum: 0
-          description: Number of days in the future for which to retrieve the menu.
-      produces:
-        - text/plain
+          description: "Number of days ahead (0 = today)"
       responses:
         200:
-          description: Success
+          description: "Menu in X days in plain text"
           schema:
             type: string
-            example: "Option 1: Pasta Bolognese\nOption 2: Vegetarian Curry"
+  /taffa/{language}/json/today/:
+    get:
+      summary: "Get today's menu in JSON format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+      responses:
+        200:
+          description: "Today's menu in JSON"
+          schema:
+            type: object
+  /taffa/{language}/json/week/:
+    get:
+      summary: "Get weekly menu in JSON format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+      responses:
+        200:
+          description: "Weekly menu in JSON"
+          schema:
+            type: array
+            items:
+              type: object
+  /taffa/{language}/json/{days}/:
+    get:
+      summary: "Get menu in X days in JSON format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+        - name: days
+          in: path
+          required: true
+          type: integer
+          description: "Number of days ahead (0 = today)"
+      responses:
+        200:
+          description: "Menu in X days in JSON"
+          schema:
+            type: object
+  /taffa/{language}/html/today/:
+    get:
+      summary: "Get today's menu in HTML format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+      responses:
+        200:
+          description: "Today's menu in HTML"
+          schema:
+            type: string
+  /taffa/{language}/html/week/:
+    get:
+      summary: "Get weekly menu in HTML format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+      responses:
+        200:
+          description: "Weekly menu in HTML"
+          schema:
+            type: string
+  /taffa/{language}/html/{days}/:
+    get:
+      summary: "Get menu in X days in HTML format"
+      parameters:
+        - name: language
+          in: path
+          required: true
+          type: string
+        - name: days
+          in: path
+          required: true
+          type: integer
+          description: "Number of days ahead (0 = today)"
+      responses:
+        200:
+          description: "Menu in X days in HTML"
+          schema:
+            type: string

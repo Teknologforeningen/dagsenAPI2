@@ -80,7 +80,7 @@ class APIClient:
             
 
     def fetch_menu(self, date: str, language: str) -> Dict[str, Any] : 
-        """ Fetches the menu for one day from the api and returns json 
+        """ Fetches the menu for one day from the api and returns Dictionary with the menu 
             like in menu_to_json
         Parameters
         Dates - Comma separated list of dates in format YYYY-MM-DD
@@ -97,7 +97,7 @@ class APIClient:
             return {'error': f" AttributeError with details: {Ae}, and endpoint={endpoint}"}
     
 
-    def menu_to_json(self, menu_list, language: str, date: str):
+    def menu_to_json(self, menu_list, language: str, date: str) -> Dict:
         ''' For parsing the menu fetched from poweresta and returning a json dictionary
         Parameters
         menu_list     - list of menu items
@@ -167,11 +167,10 @@ class APIClient:
         return date.isoformat()
     
 
-    def json_menu(self, date, language):
-        ''' Returns menu for a given date in json format '''
-        menu = self.fetch_menu(date=date, language=language)
-        return Response(json.dumps(menu, ensure_ascii=False), mimetype='application/json; charset:utf-8')
-    
+    def json_menu(self, date, language) -> Dict:
+        ''' Returns json object with menu for a given date '''
+        return self.fetch_menu(date=date, language=language)
+
 
     def textAndMeals(self, date, language):
         ''' Returns menu for a given date in text format '''
