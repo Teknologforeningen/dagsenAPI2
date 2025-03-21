@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menu</title>
+</head>
+<body>
+    {% for day in days %}
+        <h2>{{ day.dayName }} ({{ day.day }})</h2>
+        {% if day|length > 2 %}
+            <ul>
+                {% for key, value in day.items() if key not in ["day", "dayName"] %}
+                    <li><strong>{{ key|capitalize }}:</strong> {{ value }}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No menu available.</p>
+        {% endif %}
+        <hr>
+    {% endfor %}
+</body>
+</html>
