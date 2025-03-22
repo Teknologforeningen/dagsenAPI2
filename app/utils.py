@@ -60,7 +60,7 @@ class APIClient:
             }
 
             try:
-                Response = None
+                response = None
                 response = requests.get(url, headers=headers)
                 # If 403, refresh the token and retry (once)
                 if response.status_code == 403 and retry:
@@ -73,10 +73,10 @@ class APIClient:
                 return response.json()
 
             except requests.RequestException as e:
-                print(f"API request failed: {e} status: {response.status_code if response else "no response"}") #FIXME: change to return error instead of printing
+                print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: change to return error instead of printing
                 return None
             except PermissionError as pe:
-                print(f"API request failed: {pe} status: {response.status_code if response else "no response"}") #FIXME: change to return error instead of printing
+                print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: change to return error instead of printing
                 return None
             except Exception as e:
                 print(f"Unexpected error: {e}")  # Catch-all for any other exceptions
