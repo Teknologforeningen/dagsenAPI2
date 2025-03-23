@@ -78,9 +78,6 @@ class APIClient:
             except PermissionError as pe:
                 print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: change to return error instead of printing
                 return None
-            except Exception as e:
-                print(f"Unexpected error: {e}")  # Catch-all for any other exceptions
-            
             return None
             
 
@@ -182,7 +179,6 @@ class APIClient:
         menu = self.fetch_menu(date=date, language=language)
         del menu["day"]
         del menu["dayName"]
-        print(type(menu))
         output = ""
         if len(menu) == 0:
             output = "No menu available"
