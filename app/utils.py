@@ -2,9 +2,8 @@ import requests
 import os
 import datetime
 from dotenv import load_dotenv
-from flask import Response, request, render_template
-from typing import Dict, List, Any
-import json
+from flask import Response
+from typing import Dict, Any
 
 
 days = {
@@ -24,7 +23,7 @@ class APIClient:
         self.site_name = os.getenv("SITE_NAME")
         self.api_password = os.getenv("API_PASSWORD")
         self.api_username = os.getenv("API_USERNAME")
-        self.tenant = "tf" #FIXME: Change to env variable
+        self.tenant = "tf" #FIXME: Change to env variable?
         self.token = ""
 
 
@@ -73,10 +72,10 @@ class APIClient:
                 return response.json()
 
             except requests.RequestException as e:
-                print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: change to return error instead of printing
+                print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
                 return None
             except PermissionError as pe:
-                print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: change to return error instead of printing
+                print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
                 return None
             return None
             
@@ -109,7 +108,7 @@ class APIClient:
         {
             "day": "2021-09-01",
             "dayName": "Wednesday",
-            "Option 1": "Dish 1",
+            "Option 1": "Dish 1 (Allergens listed)",
             "Extra": "No menu available"    // If no menu available
         }
         '''
@@ -136,13 +135,20 @@ class APIClient:
         if not menu_list or len(menu_list) == 0:
             obj["Extra"] = "No menu available" 
         else: 
-            i=0 # Tracks number of unnamed meal options
+            i=1 # Tracks number of unnamed meal options
             menu = menu_list[0] # Here we are only interested in the one (first) day
             options = menu.get("mealOptions")
             if options is not None:
-                print(f"number of mealOptions: {len(options)}") # FIXME: remove after debugging
+                # For every meal option
                 for meal_option in menu.get("mealOptions"):
-                    option_name = "None"
+                    # Getting allergens
+                    diet_text = ""
+                    for diet in meal_option.get("rows")[0].get("diets", []):
+                        if diet.get("language") == language:
+                            diets = diet.get("dietShorts", [])
+                            diet_text = f""" ({", ".join(diets)})""" if diets else ""
+                    # Getting option and dish names
+                    option_name = f"Unnamed meal option {i}"
                     for name_entry in meal_option.get("names", []):
                         if name_entry.get("language") == language:
                             option_name = name_entry.get("name", f"Unnamed meal option {i}")
@@ -152,6 +158,8 @@ class APIClient:
                     for name_row in meal_option.get("rows")[0].get("names"):
                         if name_row.get("language") == language:
                             dish_name = name_row.get("name", "Unnamed dish")
+                            # Add allergens
+                            dish_name += diet_text
                     obj[option_name] = dish_name
         return obj
 
