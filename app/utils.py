@@ -2,9 +2,9 @@ import requests
 import os
 import datetime
 from dotenv import load_dotenv
-from flask import Response
-from typing import Dict, Any
-
+from flask import Response, request, render_template
+from typing import Dict, List, Any
+import json
 
 days = {
   'sv': [' ', u'Måndag', u'Tisdag', u'Onsdag', u'Torsdag', u'Fredag', u'Lördag', u'Söndag'],
