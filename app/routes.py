@@ -60,7 +60,7 @@ def jsonThisWeek(language):
 
 
 # Todays menu in html format
-@main.route('/taffa/<language>/html/today/') #FIXME: which of these are needed?
+@main.route('/taffa/<language>/html/today/')
 def todaysMenuHTML(language):
     days = []
     todaysDate = datetime.date.today().isoformat()
@@ -84,13 +84,13 @@ def htmlThisWeek(language):
     return render_template('menu.html', days=days)
 
 
-@main.route('/taffa/<language>/<day>/<month>/<year>/') #FIXME: which of these are needed?
+@main.route('/taffa/<language>/<day>/<month>/<year>/') #FIXME: Are these needed?
 
-@main.route('/taffa/<language>/txt/<day>/<month>/<year>/') #FIXME: which of these are needed?
+@main.route('/taffa/<language>/txt/<day>/<month>/<year>/') #FIXME: Are these needed?
 
-@main.route('/taffa/<language>/json/<day>/<month>/<year>/') #FIXME: which of these are needed?
+@main.route('/taffa/<language>/json/<day>/<month>/<year>/') #FIXME: Are these needed?
 
-@main.route('/taffa/<language>/html/<day>/<month>/<year>/') #FIXME: which of these are needed?
+@main.route('/taffa/<language>/html/<day>/<month>/<year>/') #FIXME: Are these needed?
 
 
 
