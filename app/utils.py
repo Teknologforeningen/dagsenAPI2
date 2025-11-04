@@ -5,12 +5,53 @@ from dotenv import load_dotenv
 from flask import Response, request, render_template
 from typing import Dict, List, Any
 import json
+import time
+import random
+import email.utils as email_utils
+import threading
 
 days = {
   'sv': [' ', u'Måndag', u'Tisdag', u'Onsdag', u'Torsdag', u'Fredag', u'Lördag', u'Söndag'],
   'en': [' ', u'Monday', u'Tuesday', u'Wednesday', u'Thursday', u'Friday', u'Saturday', u'Sunday'],
   'fi': [' ', u'Maanantai', u'Tiistai', u'Keskiviikko', u'Torstai', u'Perjantai', u'Lauantai', u'Sunnuntai'],
 }
+
+
+# Very small in-process token-bucket rate limiter (per-process)
+class SimpleRateLimiter:
+    def __init__(self, rate: float = 1, per_seconds: float = 1.0):
+        # rate = tokens per per_seconds
+        self.capacity = float(rate)
+        self.tokens = float(rate)
+        self.fill_rate = float(rate) / float(per_seconds)
+        self.timestamp = time.time()
+        self.lock = threading.Lock()
+
+    def _add_tokens(self):
+        now = time.time()
+        elapsed = now - self.timestamp
+        if elapsed <= 0:
+            return
+        self.tokens = min(self.capacity, self.tokens + elapsed * self.fill_rate)
+        self.timestamp = now
+
+    def allow(self) -> bool:
+        with self.lock:
+            self._add_tokens()
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                return True
+            return False
+
+    def acquire(self, block: bool = True, sleep_interval: float = 0.05) -> bool:
+        """Block until a token is available (or return False if not blocking)."""
+        if not block:
+            return self.allow()
+        while True:
+            if self.allow():
+                return True
+            time.sleep(sleep_interval)
+
 
 # General class for the api client
 class APIClient:
@@ -25,6 +66,12 @@ class APIClient:
         self.api_username = os.getenv("API_USERNAME")
         self.tenant = "tf" #FIXME: Change to env variable?
         self.token = ""
+        # simple per-process rate limiter: requests per second (default 3 req/sec)
+        try:
+            rl_rate = float(os.getenv("RATE_LIMIT", "3"))
+        except Exception:
+            rl_rate = 3.0
+        self.rate_limiter = SimpleRateLimiter(rate=rl_rate, per_seconds=1.0)
 
 
     def get_new_token(self):
@@ -54,29 +101,74 @@ class APIClient:
             json response from the api
             """
             url = f"{self.api_base_url}/{endpoint}"
-            headers = {
-                "authorization": self.token
-            }
+            headers = {"authorization": self.token}
 
-            try:
-                response = None
-                response = requests.get(url, headers=headers)
-                # If 403, refresh the token and retry (once)
-                if response.status_code == 403 and retry:
-                    print("Token expired. Attempting to refresh token...")
-                    self.token = self.get_new_token()
-                    return self.make_request(endpoint=endpoint, retry=False)
-                elif response.status_code == 403 and not retry:
-                    raise PermissionError(f"Access forbidden / 403 even after refreshing token")
+            max_attempts = 3
+            attempt = 0
+            response = None
 
-                return response.json()
+            def _parse_retry_after(header_val):
+                if not header_val:
+                    return None
+                header_val = header_val.strip()
+                # try integer seconds
+                try:
+                    return int(header_val)
+                except ValueError:
+                    pass
+                # try HTTP-date
+                try:
+                    dt = email_utils.parsedate_to_datetime(header_val)
+                    now = datetime.datetime.now(dt.tzinfo) if dt.tzinfo else datetime.datetime.utcnow()
+                    secs = (dt - now).total_seconds()
+                    return max(0, int(secs))
+                except Exception:
+                    return None
 
-            except requests.RequestException as e:
-                print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
-                return None
-            except PermissionError as pe:
-                print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
-                return None
+            while attempt < max_attempts:
+                attempt += 1
+                try:
+                    # Respect a simple per-process rate limit before calling external API
+                    try:
+                        self.rate_limiter.acquire()
+                    except Exception:
+                        # If limiter fails for any reason, proceed (fail-open)
+                        pass
+                    response = requests.get(url, headers=headers, timeout=5)
+
+                    # If 403, refresh the token and retry (once)
+                    if response.status_code == 403 and retry:
+                        print("Token expired. Attempting to refresh token...")
+                        self.token = self.get_new_token()
+                        return self.make_request(endpoint=endpoint, retry=False)
+                    elif response.status_code == 403 and not retry:
+                        raise PermissionError(f"Access forbidden / 403 even after refreshing token")
+
+                    # Handle 429 - respect Retry-After if present, else exponential backoff with jitter
+                    if response.status_code == 429:
+                        retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                        backoff = 2 ** (attempt - 1)
+                        jitter = random.uniform(0, 1)
+                        wait = (retry_after if retry_after is not None else backoff) + jitter
+                        if attempt < max_attempts:
+                            time.sleep(wait)
+                            continue
+                        else:
+                            print(f"Exceeded retries after 429 for {url}")
+                            return None
+
+                    return response.json()
+
+                except requests.RequestException as e:
+                    # on network error, retry up to max_attempts
+                    if attempt < max_attempts:
+                        time.sleep((2 ** (attempt - 1)) + random.uniform(0, 1))
+                        continue
+                    print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
+                    return None
+                except PermissionError as pe:
+                    print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
+                    return None
             return None
             
 
