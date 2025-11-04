@@ -249,6 +249,9 @@ class APIClient:
         Dates - Comma separated list of dates in format YYYY-MM-DD
         Returns
         """
+        # Ensure date is a string; fall back to today if missing
+        if not date:
+            date = datetime.date.today().isoformat()
         endpoint = f"public/publicmenu/dates/{self.site_name}?dates={date}&menu={self.menu_name}"
 
         cache_key = f"menu:{self.site_name}:{date}:{language}"
@@ -270,6 +273,7 @@ class APIClient:
             self.logger.debug(f"Acquired lock for {lock_key}")
             try:
                 response = self.make_request(endpoint=endpoint)
+                self.logger.debug(f"Raw API response for {date} ({language}): {response}")
                 if not response:
                     # don't cache negative responses; return an empty menu structure
                     self.logger.debug(f"Upstream returned no data for {endpoint}")
@@ -388,8 +392,18 @@ class APIClient:
     def textAndMeals(self, date, language):
         ''' Returns menu for a given date in text format '''
         menu = self.fetch_menu(date=date, language=language)
-        del menu["day"]
-        del menu["dayName"]
+        if not isinstance(menu, dict):
+            # Log the unexpected payload for diagnostics and return a friendly message
+            try:
+                self.logger.error(f"textAndMeals: unexpected menu payload for date={date}, language={language}: {menu!r}")
+            except Exception:
+                pass
+            return Response("No menu available", mimetype='text/plain; charset=utf-8')
+
+        # Remove day/dayName safely if present (avoid KeyError)
+        menu.pop("day", None)
+        menu.pop("dayName", None)
+
         output = ""
         if len(menu) == 0:
             output = "No menu available"
