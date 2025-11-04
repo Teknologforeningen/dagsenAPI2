@@ -9,6 +9,7 @@ import time
 import random
 import email.utils as email_utils
 import threading
+import logging
 
 days = {
   'sv': [' ', u'Måndag', u'Tisdag', u'Onsdag', u'Torsdag', u'Fredag', u'Lördag', u'Söndag'],
@@ -73,6 +74,28 @@ class APIClient:
             rl_rate = 3.0
         self.rate_limiter = SimpleRateLimiter(rate=rl_rate, per_seconds=1.0)
 
+        # logger per-instance; enable debug if API_DEBUG env var set
+        self.logger = logging.getLogger('dagsenAPI2.APIClient')
+        if os.getenv('API_DEBUG', '0').lower() in ('1', 'true', 'yes'):
+            self.logger.setLevel(logging.DEBUG)
+            if not self.logger.handlers:
+                h = logging.StreamHandler()
+                h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+                self.logger.addHandler(h)
+
+        # cache ttl (seconds) for menus; default 60 seconds (1 minute)
+        try:
+            self.cache_ttl = int(os.getenv("MENU_CACHE_TTL_SECONDS", "60"))
+        except Exception:
+            self.cache_ttl = 60
+
+        # local in-process cache
+        self._local_cache: Dict[str, Any] = {}
+        self._local_cache_lock = threading.Lock()
+        # per-key locks to avoid thundering herd across threads in this process
+        self._locks: Dict[str, threading.Lock] = {}
+        self._locks_lock = threading.Lock()
+
 
     def get_new_token(self):
         ''' Get and set a new token for the api '''
@@ -130,7 +153,11 @@ class APIClient:
                 try:
                     # Respect a simple per-process rate limit before calling external API
                     try:
+                        t0 = time.time()
                         self.rate_limiter.acquire()
+                        waited = time.time() - t0
+                        if waited > 0.001:
+                            self.logger.debug(f"Rate limiter wait: {waited:.3f}s for {url}")
                     except Exception:
                         # If limiter fails for any reason, proceed (fail-open)
                         pass
@@ -138,7 +165,7 @@ class APIClient:
 
                     # If 403, refresh the token and retry (once)
                     if response.status_code == 403 and retry:
-                        print("Token expired. Attempting to refresh token...")
+                        self.logger.info("Token expired. Attempting to refresh token...")
                         self.token = self.get_new_token()
                         return self.make_request(endpoint=endpoint, retry=False)
                     elif response.status_code == 403 and not retry:
@@ -154,7 +181,7 @@ class APIClient:
                             time.sleep(wait)
                             continue
                         else:
-                            print(f"Exceeded retries after 429 for {url}")
+                            self.logger.warning(f"Exceeded retries after 429 for {url}")
                             return None
 
                     return response.json()
@@ -164,12 +191,55 @@ class APIClient:
                     if attempt < max_attempts:
                         time.sleep((2 ** (attempt - 1)) + random.uniform(0, 1))
                         continue
-                    print(f"API request failed: {e} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
+                    self.logger.error(f"API request failed: {e} status: {response.status_code if response else 'no response'}")
                     return None
                 except PermissionError as pe:
-                    print(f"API request failed: {pe} status: {response.status_code if response else 'no response'}") #FIXME: logging instead of printing
+                    self.logger.error(f"API request failed: {pe} status: {response.status_code if response else 'no response'}")
                     return None
             return None
+    
+    # --- caching helpers (redis preferred, local fallback) ---
+    def _cache_get(self, key: str):
+        with self._local_cache_lock:
+            item = self._local_cache.get(key)
+            if not item:
+                return None
+            expires_at, value = item
+            if time.time() > expires_at:
+                try:
+                    del self._local_cache[key]
+                except KeyError:
+                    pass
+                return None
+            return value
+
+    def _cache_set(self, key: str, value: Any, ttl: int = 60):
+        with self._local_cache_lock:
+            self._local_cache[key] = (time.time() + int(ttl), value)
+
+    def _acquire_lock(self, lock_key: str, lock_ttl: int = 30) -> bool:
+        # Use per-key lock in-process to avoid multiple threads fetching the same key
+        with self._locks_lock:
+            lock = self._locks.get(lock_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._locks[lock_key] = lock
+        # Try to acquire non-blocking
+        try:
+            return lock.acquire(blocking=False)
+        except Exception:
+            return False
+
+    def _release_lock(self, lock_key: str):
+        # Release in-process per-key lock
+        with self._locks_lock:
+            lock = self._locks.get(lock_key)
+        if lock:
+            try:
+                if lock.locked():
+                    lock.release()
+            except RuntimeError:
+                pass
             
 
     def fetch_menu(self, date: str, language: str) -> Dict[str, Any] : 
@@ -181,13 +251,54 @@ class APIClient:
         """
         endpoint = f"public/publicmenu/dates/{self.site_name}?dates={date}&menu={self.menu_name}"
 
-        try:
-            response = self.make_request(endpoint=endpoint)
-            return self.menu_to_json(menu_list=response, language=language, date=date)
-        except requests.exceptions.RequestException as e:
-            return {'error': f"{str(e)}  actual response was {response}"}
-        except AttributeError as Ae:
-            return {'error': f" AttributeError with details: {Ae}, and endpoint={endpoint}"}
+        cache_key = f"menu:{self.site_name}:{date}:{language}"
+
+        # Try cache first
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            self.logger.debug(f"Cache hit for {cache_key}")
+            return cached
+        else:
+            self.logger.debug(f"Cache miss for {cache_key}")
+
+        # attempt to acquire a distributed lock so only one process fetches at a time
+        lock_key = cache_key + ":lock"
+        lock_ttl = max(10, int(self.cache_ttl))  # lock for at least cache ttl or 10s
+
+        got_lock = self._acquire_lock(lock_key, lock_ttl)
+        if got_lock:
+            self.logger.debug(f"Acquired lock for {lock_key}")
+            try:
+                response = self.make_request(endpoint=endpoint)
+                if not response:
+                    # don't cache negative responses; return an empty menu structure
+                    self.logger.debug(f"Upstream returned no data for {endpoint}")
+                    return self.menu_to_json(menu_list=[], language=language, date=date)
+                result = self.menu_to_json(menu_list=response, language=language, date=date)
+                # cache parsed menu
+                self._cache_set(cache_key, result, ttl=self.cache_ttl)
+                return result
+            finally:
+                try:
+                    self._release_lock(lock_key)
+                except Exception:
+                    pass
+        else:
+            self.logger.debug(f"Another process is fetching {cache_key}; waiting for cache")
+            # another process is fetching; wait briefly for cache to appear
+            wait_until = time.time() + 10
+            while time.time() < wait_until:
+                time.sleep(0.5)
+                cached = self._cache_get(cache_key)
+                if cached is not None:
+                    self.logger.debug(f"Cache filled for {cache_key} while waiting")
+                    return cached
+            # timed out waiting; fallback to empty menu
+            self.logger.debug(f"Timed out waiting for cache for {cache_key}; returning empty menu")
+            return self.menu_to_json(menu_list=[], language=language, date=date)
+
+        # Unreachable
+        
     
 
     def menu_to_json(self, menu_list, language: str, date: str) -> Dict:

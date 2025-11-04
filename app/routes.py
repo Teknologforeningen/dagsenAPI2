@@ -65,7 +65,6 @@ def todaysMenuHTML(language):
     days = []
     todaysDate = datetime.date.today().isoformat()
     days.append(client.json_menu(date=todaysDate, language=language))
-    print(client.json_menu(date=todaysDate, language=language))
     return render_template('menu.html', days=days)
 
 # Menu in x days in html format
