@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from flask import Response, request, render_template
 from typing import Dict, List, Any
 import json
+import copy
 import time
 import random
 import email.utils as email_utils
@@ -279,8 +280,12 @@ class APIClient:
                     self.logger.debug(f"Upstream returned no data for {endpoint}")
                     return self.menu_to_json(menu_list=[], language=language, date=date)
                 result = self.menu_to_json(menu_list=response, language=language, date=date)
-                # cache parsed menu
-                self._cache_set(cache_key, result, ttl=self.cache_ttl)
+                # cache parsed menu (store a deep copy to avoid callers mutating the cached object)
+                try:
+                    self._cache_set(cache_key, copy.deepcopy(result), ttl=self.cache_ttl)
+                except Exception:
+                    # Fallback: store the original if deepcopy fails for some reason
+                    self._cache_set(cache_key, result, ttl=self.cache_ttl)
                 return result
             finally:
                 try:
@@ -400,15 +405,16 @@ class APIClient:
                 pass
             return Response("No menu available", mimetype='text/plain; charset=utf-8')
 
-        # Remove day/dayName safely if present (avoid KeyError)
-        menu.pop("day", None)
-        menu.pop("dayName", None)
+        # Work on a shallow copy to avoid mutating the cached object
+        safe_menu = dict(menu)
+        safe_menu.pop("day", None)
+        safe_menu.pop("dayName", None)
 
         output = ""
-        if len(menu) == 0:
+        if len(safe_menu) == 0:
             output = "No menu available"
         else:
-            for key, value in menu.items():
+            for key, value in safe_menu.items():
                 output += f"{key}: {value}\r\n"
         return Response(output, mimetype='text/plain; charset=utf-8')
     
