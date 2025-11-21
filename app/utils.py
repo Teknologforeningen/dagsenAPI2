@@ -77,7 +77,8 @@ class APIClient:
 
         # logger per-instance; enable debug if API_DEBUG env var set
         self.logger = logging.getLogger('dagsenAPI2.APIClient')
-        if os.getenv('API_DEBUG', '0').lower() in ('1', 'true', 'yes'):
+        self._metrics_enabled = os.getenv('API_DEBUG', '0').lower() in ('1', 'true', 'yes')
+        if self._metrics_enabled:
             self.logger.setLevel(logging.DEBUG)
             if not self.logger.handlers:
                 h = logging.StreamHandler()
@@ -96,6 +97,17 @@ class APIClient:
         # per-key locks to avoid thundering herd across threads in this process
         self._locks: Dict[str, threading.Lock] = {}
         self._locks_lock = threading.Lock()
+        # Simple in-process metrics for debugging (only enabled when API_DEBUG)
+        if self._metrics_enabled:
+            self._metrics = {
+                'upstream_fetch_count': 0,
+                'cache_hits': 0,
+                'cache_misses': 0,
+                'token_refreshes': 0,
+                'upstream_429s': 0,
+            }
+        else:
+            self._metrics = None
 
 
     def get_new_token(self):
@@ -110,7 +122,16 @@ class APIClient:
 
         try:
             response = requests.post(url, json=body)
-            return response.json().get("token")
+            try:
+                token = response.json().get("token")
+            except Exception:
+                token = None
+            if token and self._metrics_enabled and self._metrics is not None:
+                try:
+                    self._metrics['token_refreshes'] += 1
+                except Exception:
+                    pass
+            return token
         except:
             raise Exception("Error getting new token")
     
@@ -162,6 +183,14 @@ class APIClient:
                     except Exception:
                         # If limiter fails for any reason, proceed (fail-open)
                         pass
+                    # Instrumentation: count the actual call to upstream (only if enabled)
+                    if self._metrics_enabled and self._metrics is not None:
+                        try:
+                            self._metrics['upstream_fetch_count'] += 1
+                        except Exception:
+                            pass
+                    # Perform the request. Avoid logging every successful call to reduce noise;
+                    # only log non-2xx responses (or debug when enabled).
                     response = requests.get(url, headers=headers, timeout=5)
 
                     # If 403, refresh the token and retry (once)
@@ -174,10 +203,17 @@ class APIClient:
 
                     # Handle 429 - respect Retry-After if present, else exponential backoff with jitter
                     if response.status_code == 429:
+                        # Track and log rate-limited responses so we can debug upstream throttling.
+                        if self._metrics_enabled and self._metrics is not None:
+                            try:
+                                self._metrics['upstream_429s'] += 1
+                            except Exception:
+                                pass
                         retry_after = _parse_retry_after(response.headers.get("Retry-After"))
                         backoff = 2 ** (attempt - 1)
                         jitter = random.uniform(0, 1)
                         wait = (retry_after if retry_after is not None else backoff) + jitter
+                        self.logger.warning(f"Upstream returned 429 for {url} (attempt {attempt}) retry-after={retry_after} wait={wait:.2f}s")
                         if attempt < max_attempts:
                             time.sleep(wait)
                             continue
@@ -185,7 +221,24 @@ class APIClient:
                             self.logger.warning(f"Exceeded retries after 429 for {url}")
                             return None
 
-                    return response.json()
+                    try:
+                        parsed = response.json()
+                        # Only debug-log successful responses when debug logging is enabled
+                        if self.logger.isEnabledFor(logging.DEBUG):
+                            try:
+                                self.logger.debug(f"Upstream response {response.status_code} for {url}")
+                            except Exception:
+                                pass
+                        return parsed
+                    except ValueError as ve:
+                        # Upstream returned empty or non-JSON body; log for diagnostics and
+                        # return None so callers can handle the missing data.
+                        try:
+                            resp_text = response.text if response is not None else ''
+                        except Exception:
+                            resp_text = ''
+                        self.logger.error(f"API request failed: {ve} status: {response.status_code if response else 'no response'} response_text: {resp_text[:200]}")
+                        return None
 
                 except requests.RequestException as e:
                     # on network error, retry up to max_attempts
@@ -261,9 +314,19 @@ class APIClient:
         cached = self._cache_get(cache_key)
         if cached is not None:
             self.logger.debug(f"Cache hit for {cache_key}")
+            if self._metrics_enabled and self._metrics is not None:
+                try:
+                    self._metrics['cache_hits'] += 1
+                except Exception:
+                    pass
             return cached
         else:
             self.logger.debug(f"Cache miss for {cache_key}")
+            if self._metrics_enabled and self._metrics is not None:
+                try:
+                    self._metrics['cache_misses'] += 1
+                except Exception:
+                    pass
 
         # attempt to acquire a distributed lock so only one process fetches at a time
         lock_key = cache_key + ":lock"

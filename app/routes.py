@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, Response
 from .utils import APIClient
 import datetime
 import json
+import os
 
 client = APIClient()
 
@@ -101,3 +102,14 @@ def not_found(e):
 @main.errorhandler(500)
 def internal_error(e):
     return render_template('500.html'), 500
+
+
+# Simple metrics endpoint for debugging per-process counters
+if os.getenv('API_DEBUG', '0').lower() in ('1', 'true', 'yes'):
+    @main.route('/taffa/metrics')
+    def metrics():
+        try:
+            metrics = client._metrics
+            return Response(json.dumps(metrics), mimetype='application/json; charset:utf-8')
+        except Exception:
+            return Response(json.dumps({}), mimetype='application/json; charset:utf-8')
